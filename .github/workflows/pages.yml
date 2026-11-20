@@ -1,9 +1,11 @@
 name: pages
-# Publishes the static MAMA site to GitHub Pages — but REFUSES to publish while any
-# legal requisite is still a [[ЗАПОЛНИТЬ...]] placeholder, so the site can never go
-# live with empty or invented data (owner requirement). No backend, no secrets.
+# On a PR: validate only (legal requisites filled + links resolve + CNAME) — a visible
+# check, no deploy. On push to main: validate, then deploy to GitHub Pages. The site can
+# NEVER publish while any [[ЗАПОЛНИТЬ...]] placeholder remains (no empty/invented data).
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -13,24 +15,45 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-deploy:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Legal requisites are filled (no placeholders)
+        run: |
+          if grep -RnF '[[ЗАПОЛНИТЬ' index.html privacy.html; then
+            echo "::error::Заполните все [[ЗАПОЛНИТЬ...]] (ИНН/ОГРН/адрес/контакты/дата) в index.html и privacy.html — сайт не публикуется."
+            exit 1
+          fi
+          echo "OK: нет незаполненных реквизитов."
+      - name: Internal links resolve
+        run: |
+          rc=0
+          for f in index.html privacy.html; do
+            for l in $(grep -oE 'href="[^"]+"' "$f" | sed 's/href="//; s/"$//' | grep -vE '^(https?:|mailto:|tel:|#)'); do
+              if [ ! -f "$l" ]; then echo "::error::$f ссылается на отсутствующий $l"; rc=1; fi
+            done
+          done
+          [ "$rc" -eq 0 ] && echo "OK: внутренние ссылки корректны."
+          exit $rc
+      - name: CNAME matches the custom domain
+        run: |
+          test "$(tr -d '[:space:]' < CNAME)" = "mama-app.ru" || { echo "::error::CNAME должен содержать mama-app.ru"; exit 1; }
+          echo "OK: CNAME = mama-app.ru."
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Refuse to publish with unfilled legal requisites
-        run: |
-          if grep -RnF '[[ЗАПОЛНИТЬ' index.html privacy.html; then
-            echo "::error::Заполните все [[ЗАПОЛНИТЬ...]] (ИНН/ОГРН/адрес/контакты/дата) и удалите пояснительные комментарии в index.html и privacy.html — иначе сайт не публикуется."
-            exit 1
-          fi
-          echo "No unfilled placeholders — safe to publish."
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
