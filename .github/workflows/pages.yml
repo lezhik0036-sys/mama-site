@@ -1,0 +1,39 @@
+name: pages
+# Publishes the static MAMA site to GitHub Pages — but REFUSES to publish while any
+# legal requisite is still a [[ЗАПОЛНИТЬ...]] placeholder, so the site can never go
+# live with empty or invented data (owner requirement). No backend, no secrets.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse to publish with unfilled legal requisites
+        run: |
+          if grep -RnF '[[ЗАПОЛНИТЬ' index.html privacy.html; then
+            echo "::error::Заполните все [[ЗАПОЛНИТЬ...]] (ИНН/ОГРН/адрес/контакты/дата) и удалите пояснительные комментарии в index.html и privacy.html — иначе сайт не публикуется."
+            exit 1
+          fi
+          echo "No unfilled placeholders — safe to publish."
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4
